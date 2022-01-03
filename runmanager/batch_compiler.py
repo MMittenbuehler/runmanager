@@ -39,6 +39,7 @@ class BatchProcessor(object):
         # Save the dict so we can reset the module to a clean state later:
         self.script_module_clean_dict = self.script_module.__dict__.copy()
         sys.modules[self.script_module.__name__] = self.script_module
+        print("NAME", self.script_module.__name__)
 
         self.mainloop()
         
@@ -53,7 +54,7 @@ class BatchProcessor(object):
             else:
                 raise ValueError(signal)
                     
-    def compile(self, labscript_file, run_file):
+    def compile(self, labscript_file, run_file, shot_template_folder, shot_folder):
         self.script_module.__file__ = labscript_file
 
         # Save the current working directory before changing it to the location of the
@@ -64,7 +65,7 @@ class BatchProcessor(object):
         try:
             # Do not let the modulewatcher unload any modules whilst we're working:
             with kill_lock, module_watcher.lock:
-                labscript.labscript_init(run_file, labscript_file=labscript_file)
+                labscript.labscript_init(run_file, shot_template_folder, shot_folder, labscript_file=labscript_file)
                 with open(labscript_file) as f:
                     code = compile(
                         f.read(), self.script_module.__file__, 'exec', dont_inherit=True

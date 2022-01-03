@@ -744,13 +744,22 @@ def make_run_files(
         random.shuffle(shots)
     for i, shot_globals in enumerate(shots):
         runfilename = ('%s_%0' + str(ndigits) + 'd.h5') % (basename, i)
+
+        shot_templates_folder = f"{basename}_shot_templates_{i}"
+        os.makedirs(shot_templates_folder, exist_ok=True)
+
+        shot_runs_folder = f"{basename}_shot_runs_{i}"
+        os.makedirs(shot_runs_folder, exist_ok=True)
+
+        
         make_single_run_file(
-            runfilename, sequence_globals, shot_globals, sequence_attrs, i, nruns
+            runfilename, sequence_globals, shot_globals, sequence_attrs, i, nruns, shot_templates_folder, shot_runs_folder
         )
-        yield runfilename
+
+        yield runfilename, shot_templates_folder, shot_runs_folder
 
 
-def make_single_run_file(filename, sequenceglobals, runglobals, sequence_attrs, run_no, n_runs):
+def make_single_run_file(filename, sequenceglobals, runglobals, sequence_attrs, run_no, n_runs, shot_template_folder = None, shot_folder = None):
     """Does what it says. runglobals is a dict of this run's globals, the format being
     the same as that of one element of the list returned by expand_globals.
     sequence_globals is a nested dictionary of the type returned by get_globals.
@@ -758,11 +767,22 @@ def make_single_run_file(filename, sequenceglobals, runglobals, sequence_attrs, 
     new_sequence_details. run_no and n_runs must be provided, if this run file is part
     of a sequence, then they should reflect how many run files are being generated in
     this sequence, all of which must have identical sequence_attrs."""
+
+    if shot_template_folder is None:
+        shot_template_folder = os.path.dirname(filename)
+        
+    if shot_folder is None:
+        shot_folder = os.path.dirname(filename)
+
     os.makedirs(os.path.dirname(filename), exist_ok=True)
     with h5py.File(filename, 'w') as f:
         f.attrs.update(sequence_attrs)
         f.attrs['run number'] = run_no
         f.attrs['n_runs'] = n_runs
+        f.attrs['shot_template_folder'] = shot_template_folder
+        f.attrs['shot_folder'] = shot_folder
+        f.create_group('shot_templates')
+        f.create_group('shots')
         f.create_group('globals')
         if sequenceglobals is not None:
             for groupname, groupvars in sequenceglobals.items():

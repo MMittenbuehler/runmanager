@@ -1380,8 +1380,8 @@ class RunManager(object):
         self.output_popout_button.setIcon(QtGui.QIcon(':/qtutils/fugue/arrow-out'))
         self.output_popout_button.setToolTip('Toggle whether the output box is in a separate window')
         self.ui.tabWidget.tabBar().setTabButton(output_tab_index, QtWidgets.QTabBar.RightSide, self.output_popout_button)
-        # Fix the first three tabs in place:
-        for index in range(3):
+        # Fix the first four tabs in place:
+        for index in range(4):
             self.ui.tabWidget.tabBar().setMovable(False, index=index)
         # Whether or not the output box is currently popped out:
         self.output_box_is_popped_out = False
@@ -1394,6 +1394,7 @@ class RunManager(object):
         self.setup_config()
         self.setup_axes_tab()
         self.setup_groups_tab()
+        self.setup_subshots_tab()
         self.connect_signals()
 
         # The last location from which a labscript file was selected, defaults
@@ -1411,6 +1412,13 @@ class RunManager(object):
         self.experiment_shot_storage = self.exp_config.get('paths', 'experiment_shot_storage')
         # Store the currently open groups as {(globals_filename, group_name): GroupTab}
         self.currently_open_groups = {}
+
+        # TODO: load composition & sub-shots
+        self.composition = True
+        # Store sub shots as [{name, location}]
+        self.sub_shots = []
+        self.new_sub_shot_name = ""
+        self.new_sub_shot_location = ""
 
         # A thread that will evaluate globals when they change, allowing us to
         # show their values and any errors in the tabs they came from.
@@ -1532,7 +1540,12 @@ class RunManager(object):
         # setup header widths
         self.ui.treeView_axes.header().setStretchLastSection(False)
         self.ui.treeView_axes.header().setSectionResizeMode(self.AXES_COL_NAME, QtWidgets.QHeaderView.Stretch)
-                                                          
+
+    def setup_subshots_tab(self):
+        self.sub_shots_model = QtGui.QStandardItemModel()
+        self.sub_shots_model.setHorizontalHeaderLabels(['Sub-Shot name', 'File'])
+        self.ui.treeView_sub_shots.setModel(self.sub_shots_model)
+
     def setup_groups_tab(self):
         self.groups_model = QtGui.QStandardItemModel()
         self.groups_model.setHorizontalHeaderLabels(['File/group name', 'Active', 'Delete', 'Open/Close'])
@@ -1583,6 +1596,43 @@ class RunManager(object):
         # flow-on changes made by the method itself:
         self.on_groups_model_active_changed_recursion_depth = 0
 
+    def on_create_new_sub_shot_clicked(self):
+
+        name = self.ui.lineEdit_new_sub_shot_name.text()
+        file = self.ui.lineEdit_new_sub_shot_file.text()
+
+        # Add the parent row:
+        sub_shot_name_item = QtGui.QStandardItem(name)
+        sub_shot_name_item.setEditable(False)
+        sub_shot_name_item.setToolTip(name)
+        
+        sub_shot_file_item = QtGui.QStandardItem(file)
+        sub_shot_file_item.setEditable(False)
+        sub_shot_file_item.setToolTip(file)
+
+        self.sub_shots_model.appendRow([sub_shot_name_item, sub_shot_file_item])
+
+    def on_select_sub_shot_file_clicked(self):
+        labscript_file = QtWidgets.QFileDialog.getOpenFileName(self.ui,
+                                                           'Select sub shot file',
+                                                           self.last_opened_labscript_folder,
+                                                           "Python files (*.py)")
+        if type(labscript_file) is tuple:
+            labscript_file, _ = labscript_file
+
+        if not labscript_file:
+            # User cancelled selection
+            return
+        # Convert to standard platform specific path, otherwise Qt likes forward slashes:
+        labscript_file = os.path.abspath(labscript_file)
+        if not os.path.isfile(labscript_file):
+            error_dialog("No such file %s." % labscript_file)
+            return
+        # Save the containing folder for use next time we open the dialog box:
+        self.last_opened_labscript_folder = os.path.dirname(labscript_file)
+        # Write the file to the lineEdit:
+        self.ui.lineEdit_new_sub_shot_file.setText(labscript_file)
+
     def connect_signals(self):
         # The button that pops the output box in and out:
         self.output_popout_button.clicked.connect(self.on_output_popout_button_clicked)
@@ -1601,6 +1651,10 @@ class RunManager(object):
         self.ui.toolButton_reset_shot_output_folder.clicked.connect(self.on_reset_shot_output_folder_clicked)
         self.ui.lineEdit_labscript_file.textChanged.connect(self.on_labscript_file_text_changed)
         self.ui.lineEdit_shot_output_folder.textChanged.connect(self.on_shot_output_folder_text_changed)
+
+        # Sub shot creation
+        self.ui.pushButton_new_sub_shot.clicked.connect(self.on_create_new_sub_shot_clicked)
+        self.ui.toolButton_new_sub_shot_open_file.clicked.connect(self.on_select_sub_shot_file_clicked)
 
         # Control buttons; engage, abort, restart subprocess:
         self.ui.pushButton_engage.clicked.connect(self.on_engage_clicked)
@@ -3225,12 +3279,12 @@ class RunManager(object):
                             # We do next() instead of looping over run_files
                             # so that if compilation is aborted we won't
                             # create an extra file unnecessarily.
-                            run_file = next(run_files)
+                            (run_file, shot_template_folder, shot_folder) = next(run_files)
                         except StopIteration:
                             self.output_box.output('Ready.\n\n')
                             break
                         else:
-                            self.to_child.put(['compile', [labscript_file, run_file]])
+                            self.to_child.put(['compile', [labscript_file, run_file, shot_template_folder, shot_folder]])
                             signal, success = self.from_child.get()
                             assert signal == 'done'
                             if not success:
